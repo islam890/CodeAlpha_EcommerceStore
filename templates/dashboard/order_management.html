@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Order management | Luma &amp; Co.{% endblock %}
+{% block content %}
+<div class="container page-shell dashboard-shell">
+    <a class="back-link" href="{% url 'dashboard:index' %}">← Back to dashboard</a>
+    <div class="page-heading"><div><p class="eyebrow">Staff workspace / Orders</p><h1>Orders</h1></div><span class="results-count">{{ orders|length }} total orders</span></div>
+    <div class="dashboard-panel"><div class="panel-heading"><h2>Recent orders</h2><span>{{ orders|length }} orders</span></div><div class="table-responsive"><table class="management-table"><thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Total</th><th>Status</th><th></th></tr></thead><tbody>{% for order in orders %}<tr><td><strong>{{ order.order_number }}</strong></td><td>{{ order.user.get_full_name|default:order.user.username }}</td><td>{{ order.created_at|date:"M d, Y" }}</td><td>${{ order.total }}</td><td><span class="status-pill {% if order.status == 'delivered' %}status-pill--green{% endif %}">{{ order.get_status_display }}</span></td><td>View in admin</td></tr>{% empty %}<tr><td colspan="6">No orders yet.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+{% endblock %}

@@ -1,0 +1,47 @@
+<footer class="site-footer">
+    <div class="container">
+        <div class="row gy-5">
+            <div class="col-lg-5">
+                <a class="brand-mark brand-mark--light" href="{% url 'home' %}">Luma<span>&amp;Co.</span></a>
+                <p class="footer-intro">Everyday objects, thoughtfully chosen. Designed to bring a little more ease to your everyday.</p>
+                <div class="social-links" aria-label="Social media">
+                    <a href="#" aria-label="Instagram">ig</a>
+                    <a href="#" aria-label="Pinterest">p</a>
+                    <a href="#" aria-label="TikTok">tk</a>
+                </div>
+            </div>
+            <div class="col-6 col-lg-2">
+                <h2 class="footer-heading">Explore</h2>
+                <ul class="footer-links">
+                    <li><a href="{% url 'catalog:products' %}">Shop all</a></li>
+                    <li><a href="{% url 'catalog:categories' %}">Collections</a></li>
+                    <li><a href="{% url 'catalog:products' %}">New arrivals</a></li>
+                    <li><a href="{% url 'catalog:search' %}">Search</a></li>
+                </ul>
+            </div>
+            <div class="col-6 col-lg-2">
+                <h2 class="footer-heading">Help</h2>
+                <ul class="footer-links">
+                    <li><a href="{% url 'accounts:profile' %}">My account</a></li>
+                    <li><a href="{% url 'orders:history' %}">Order status</a></li>
+                    <li><a href="{% url 'cart:detail' %}">Shipping &amp; returns</a></li>
+                    <li><a href="{% url 'accounts:profile' %}">Contact us</a></li>
+                </ul>
+            </div>
+            <div class="col-lg-3">
+                <h2 class="footer-heading">Stay in the know</h2>
+                <p class="footer-copy">Quietly good things, sent occasionally.</p>
+                <form class="newsletter-form" action="" method="post">
+                    {% csrf_token %}
+                    <label class="visually-hidden" for="newsletter-email">Email address</label>
+                    <input id="newsletter-email" type="email" placeholder="Your email address" required>
+                    <button class="button button--light" type="submit" aria-label="Subscribe">→</button>
+                </form>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <span>© 2026 Luma &amp; Co. All rights reserved.</span>
+            <span>Made for slower, better living.</span>
+        </div>
+    </div>
+</footer>

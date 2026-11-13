@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Search | Luma &amp; Co.{% endblock %}
+{% block content %}
+<div class="container page-shell">
+    {% include "includes/breadcrumbs.html" %}
+    <div class="search-page-heading"><p class="eyebrow">Looking for something?</p><h1>Search the collection</h1><form class="search-form" action="{% url 'catalog:search' %}" method="get"><label class="visually-hidden" for="search-query">Search products</label><input id="search-query" name="q" type="search" placeholder="Try “linen”, “ceramic”, or “jacket”"><button type="submit">Search <span>↗</span></button></form></div>
+    <div class="section-heading section-heading--compact"><p class="results-count">{{ page_obj.paginator.count }} result{{ page_obj.paginator.count|pluralize }}</p><a class="text-link" href="{% url 'catalog:products' %}">Browse all <span>↗</span></a></div>
+    <div class="row g-4 product-grid">{% for product in products %}<div class="col-12 col-sm-6 col-lg-3">{% include "includes/product_card.html" %}</div>{% empty %}<div class="col-12"><div class="empty-state"><h3>No matching products.</h3><p>Try a different search term.</p></div></div>{% endfor %}</div>
+</div>
+{% endblock %}

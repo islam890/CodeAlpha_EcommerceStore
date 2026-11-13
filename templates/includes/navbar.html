@@ -1,0 +1,31 @@
+<nav class="navbar navbar-expand-lg site-navbar" aria-label="Primary navigation">
+    <div class="container">
+        <a class="navbar-brand brand-mark" href="{% url 'home' %}">
+            <span class="brand-mark__dot"></span>
+            Luma<span>&amp;Co.</span>
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#siteNavigation" aria-controls="siteNavigation" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="siteNavigation">
+            <ul class="navbar-nav mx-auto gap-lg-2">
+                <li class="nav-item"><a class="nav-link" href="{% url 'catalog:products' %}">Shop all</a></li>
+                <li class="nav-item"><a class="nav-link" href="{% url 'catalog:categories' %}">Collections</a></li>
+                <li class="nav-item"><a class="nav-link" href="{% url 'catalog:products' %}">New arrivals</a></li>
+                <li class="nav-item"><a class="nav-link" href="{% url 'catalog:products' %}">Journal</a></li>
+            </ul>
+            <div class="nav-actions">
+                <a class="icon-link" href="{% url 'catalog:search' %}" aria-label="Search products">
+                    <span class="icon icon-search" aria-hidden="true"></span>
+                </a>
+                <a class="icon-link" href="{% if user.is_authenticated %}{% url 'accounts:profile' %}{% else %}{% url 'accounts:login' %}{% endif %}" aria-label="Your account">
+                    <span class="icon icon-user" aria-hidden="true"></span>
+                </a>
+                <a class="icon-link icon-link--bag" href="{% url 'cart:detail' %}" aria-label="Shopping bag">
+                    <span class="icon icon-bag" aria-hidden="true"></span><span class="bag-count">{{ cart_item_count }}</span>
+                </a>
+                {% if user.is_authenticated %}<form method="post" action="{% url 'accounts:logout' %}" class="nav-logout-form">{% csrf_token %}<button class="text-link" type="submit">Sign out</button></form>{% else %}<a class="text-link" href="{% url 'accounts:login' %}">Sign in</a>{% endif %}
+            </div>
+        </div>
+    </div>
+</nav>

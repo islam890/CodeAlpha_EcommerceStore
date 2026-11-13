@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}{% if review %}Edit review{% else %}Write a review{% endif %} | Luma &amp; Co.{% endblock %}
+{% block content %}<div class="container narrow-shell"><div class="auth-card auth-card--wide"><p class="eyebrow">Your perspective matters</p><h1>{% if review %}Edit{% else %}Review{% endif %} {{ product.name|default:"this product" }}</h1><form class="form-stack" method="post">{% csrf_token %}{{ form.non_field_errors }}{{ form.as_p }}<button class="button button--dark button--wide" type="submit">{% if review %}Save review{% else %}Submit review{% endif %} <span>→</span></button></form></div></div>{% endblock %}

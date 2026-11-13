@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Collections | Luma &amp; Co.{% endblock %}
+{% block content %}
+<div class="container page-shell">
+    {% include "includes/breadcrumbs.html" %}
+    <div class="page-heading"><div><p class="eyebrow">Find your rhythm</p><h1>Collections</h1></div></div>
+    <div class="row g-4 collection-grid">{% for category in categories %}<div class="col-md-6"><a class="collection-card collection-card--cream" href="{% url 'catalog:products' %}?category={{ category.slug }}"><span>{{ forloop.counter|stringformat:"02d" }}</span><h2>{{ category.name }}</h2><p>{{ category.description|default:"Thoughtful pieces for everyday living." }}</p><b>Explore ↗</b></a></div>{% empty %}<div class="col-12"><div class="empty-state"><h3>No collections yet.</h3><p>New collections will appear here soon.</p></div></div>{% endfor %}</div>
+</div>
+{% endblock %}

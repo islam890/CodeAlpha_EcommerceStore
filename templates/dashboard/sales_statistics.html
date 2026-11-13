@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Sales statistics | Luma &amp; Co.{% endblock %}
+{% block content %}
+<div class="container page-shell dashboard-shell">
+    <a class="back-link" href="{% url 'dashboard:index' %}">← Back to dashboard</a>
+    <div class="page-heading"><div><p class="eyebrow">Staff workspace / Insights</p><h1>Sales statistics</h1></div><span class="results-count">May 01 – May 30, 2026</span></div>
+    <div class="row g-4 stats-row"><div class="col-md-4"><div class="stat-card"><span>Gross sales</span><strong>${{ summary.revenue|default:"0.00" }}</strong><small>Paid fulfilled orders</small></div></div><div class="col-md-4"><div class="stat-card"><span>Paid orders</span><strong>{{ summary.orders|default:0 }}</strong><small>Processing through delivered</small></div></div><div class="col-md-4"><div class="stat-card"><span>Payment rule</span><strong>Paid</strong><small>Unpaid orders excluded</small></div></div></div>
+    <div class="dashboard-panel mt-4"><div class="panel-heading"><h2>Revenue trend</h2><span>Last 30 days</span></div><div class="chart-placeholder chart-placeholder--large"><div class="chart-line"></div><span>$30k</span><span>$20k</span><span>$10k</span></div></div>
+</div>
+{% endblock %}

@@ -1,0 +1,25 @@
+<article class="product-card">
+    <div class="product-card__media">
+        {% if product.is_featured %}<span class="product-card__badge">Featured</span>{% endif %}
+        <a href="{% url 'catalog:product_detail' product.slug %}" aria-label="View {{ product.name }}">
+            {% if product.main_image %}<img src="{{ product.main_image.url }}" alt="{{ product.name }}" loading="lazy">{% else %}{% load static %}<img src="{% static 'images/product-placeholder.svg' %}" alt="{{ product.name }}" loading="lazy">{% endif %}
+        </a>
+        {% if user.is_authenticated %}
+        <form method="post" action="{% url 'wishlist:add' product.slug %}" class="product-card__save-form">
+            {% csrf_token %}<button class="product-card__save" type="submit" aria-label="Save {{ product.name }}"><span aria-hidden="true">♡</span></button>
+        </form>
+        {% endif %}
+        {% if product.is_in_stock %}
+        <form method="post" action="{% url 'cart:add' product.slug %}" class="product-card__quick-add-form">
+            {% csrf_token %}<input type="hidden" name="quantity" value="1"><button class="product-card__quick-add" type="submit">Quick add <span>+</span></button>
+        </form>
+        {% endif %}
+    </div>
+    <div class="product-card__content">
+        <div>
+            <p class="eyebrow">{{ product.category.name }}</p>
+            <h3><a href="{% url 'catalog:product_detail' product.slug %}">{{ product.name }}</a></h3>
+        </div>
+        <strong>${{ product.price }}</strong>
+    </div>
+</article>

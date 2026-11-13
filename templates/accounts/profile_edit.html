@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}Edit profile | Luma &amp; Co.{% endblock %}
+{% block content %}<div class="container narrow-shell"><div class="auth-card auth-card--wide"><p class="eyebrow">Your details</p><h1>Edit profile</h1><form class="form-stack" method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button class="button button--dark button--wide" type="submit">Save changes <span>→</span></button></form></div></div>{% endblock %}

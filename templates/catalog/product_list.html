@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Shop all | Luma &amp; Co.{% endblock %}
+{% block content %}
+<div class="container page-shell">
+    {% include "includes/breadcrumbs.html" %}
+    <div class="page-heading"><div><p class="eyebrow">The collection</p><h1>Shop all</h1></div><p class="page-heading__description">Thoughtful objects for everyday rituals, from first coffee to last light.</p></div>
+    <div class="filter-bar">
+        <button class="filter-toggle" type="button" data-filter-toggle>Filter &amp; sort <span>＋</span></button>
+        <span class="results-count">{{ page_obj.paginator.count }} product{{ page_obj.paginator.count|pluralize }}</span>
+        <form method="get" class="sort-form"><select class="sort-select" name="sort" aria-label="Sort products" onchange="this.form.submit()"><option value="">Featured</option><option value="-created_at" {% if request.GET.sort == "-created_at" %}selected{% endif %}>Newest</option><option value="price" {% if request.GET.sort == "price" %}selected{% endif %}>Price: low to high</option><option value="-price" {% if request.GET.sort == "-price" %}selected{% endif %}>Price: high to low</option></select>{% if request.GET.q %}<input type="hidden" name="q" value="{{ request.GET.q }}">{% endif %}{% if request.GET.category %}<input type="hidden" name="category" value="{{ request.GET.category }}">{% endif %}</form>
+    </div>
+    <div class="filter-links">{% for category in categories %}<a href="?category={{ category.slug }}">{{ category.name }}</a>{% endfor %}</div>
+    <div class="row g-4 product-grid">
+        {% for product in products %}
+            <div class="col-12 col-sm-6 col-lg-3">{% include "includes/product_card.html" %}</div>
+        {% empty %}
+            <div class="col-12"><div class="empty-state"><h3>No products found.</h3><p>Try another search or browse all collections.</p><a class="button button--outline" href="{% url 'catalog:products' %}">Browse all products</a></div></div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
