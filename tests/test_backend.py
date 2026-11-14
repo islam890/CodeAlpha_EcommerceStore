@@ -307,6 +307,38 @@ class BackendWorkflowTests(TestCase):
         self.product.save()
         self.assertEqual(order.items.get().unit_price, Decimal("32.00"))
 
+    def test_checkout_updates_stock_for_each_locked_product(self):
+        second_product = Product.objects.create(
+            category=self.category,
+            name="Daily Plate",
+            slug="daily-plate",
+            sku="PLATE-001",
+            description="A useful plate.",
+            price=Decimal("18.00"),
+            stock_quantity=4,
+        )
+        cart = Cart.objects.create(user=self.user)
+        add_item(cart, self.product, 2)
+        add_item(cart, second_product, 3)
+
+        order = create_order(
+            user=self.user,
+            cart=cart,
+            checkout_data={
+                "shipping_name": "Alex Customer",
+                "shipping_email": "alex@example.com",
+                "shipping_phone": "",
+                "shipping_address": "123 Main Street",
+                "payment_method": Order.PaymentMethod.COD,
+            },
+        )
+
+        self.product.refresh_from_db()
+        second_product.refresh_from_db()
+        self.assertEqual(order.items.count(), 2)
+        self.assertEqual(self.product.stock_quantity, 3)
+        self.assertEqual(second_product.stock_quantity, 1)
+
     def test_checkout_preserves_two_decimal_money_totals(self):
         self.product.price = Decimal("12.34")
         self.product.save(update_fields=("price",))
@@ -490,6 +522,61 @@ class BackendWorkflowTests(TestCase):
 
         with self.assertRaises(ValueError):
             cancel_order(order)
+
+    def test_insufficient_stock_rolls_back_order_and_cart(self):
+        cart = Cart.objects.create(user=self.other_user)
+        CartItem.objects.create(cart=cart, product=self.product, quantity=6)
+
+        with self.assertRaisesMessage(ValueError, "does not have enough stock"):
+            create_order(
+                user=self.other_user,
+                cart=cart,
+                checkout_data={
+                    "shipping_name": "Other Customer",
+                    "shipping_email": "other@example.com",
+                    "shipping_phone": "",
+                    "shipping_address": "456 Main Street",
+                    "payment_method": Order.PaymentMethod.COD,
+                },
+            )
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 5)
+        self.assertFalse(Order.objects.filter(user=self.other_user).exists())
+        self.assertTrue(CartItem.objects.filter(cart=cart).exists())
+
+    def test_cancellation_restores_stock_for_each_product(self):
+        second_product = Product.objects.create(
+            category=self.category,
+            name="Daily Plate",
+            slug="daily-plate-cancel",
+            sku="PLATE-CANCEL-001",
+            description="A useful plate.",
+            price=Decimal("18.00"),
+            stock_quantity=4,
+        )
+        cart = Cart.objects.create(user=self.user)
+        add_item(cart, self.product, 2)
+        add_item(cart, second_product, 3)
+        order = create_order(
+            user=self.user,
+            cart=cart,
+            checkout_data={
+                "shipping_name": "Alex Customer",
+                "shipping_email": "alex@example.com",
+                "shipping_phone": "",
+                "shipping_address": "123 Main Street",
+                "payment_method": Order.PaymentMethod.COD,
+            },
+        )
+
+        cancel_order(order)
+
+        self.product.refresh_from_db()
+        second_product.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.CANCELLED)
+        self.assertEqual(self.product.stock_quantity, 5)
+        self.assertEqual(second_product.stock_quantity, 4)
 
     def test_anonymous_and_non_owner_cannot_cancel_order(self):
         order = Order.objects.create(

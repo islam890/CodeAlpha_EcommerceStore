@@ -107,12 +107,19 @@ def create_order(*, user, cart, checkout_data):
     locked_cart = Cart.objects.select_for_update().filter(pk=cart.pk, user=user).first()
     if locked_cart is None:
         raise ValueError("Your cart is unavailable.")
-    items = list(locked_cart.items.select_related("product").select_for_update())
+    items = list(locked_cart.items.select_for_update())
     if not items:
         raise ValueError("Your cart is empty.")
+    product_ids = sorted({item.product_id for item in items})
+    locked_products = {
+        product.pk: product
+        for product in Product.objects.select_for_update()
+        .filter(pk__in=product_ids)
+        .order_by("pk")
+    }
     subtotal = Decimal("0.00")
     for item in items:
-        product = item.product
+        product = locked_products[item.product_id]
         if (
             not isinstance(item.quantity, int)
             or isinstance(item.quantity, bool)
@@ -136,7 +143,7 @@ def create_order(*, user, cart, checkout_data):
         payment_method=checkout_data["payment_method"],
     )
     for item in items:
-        product = item.product
+        product = locked_products[item.product_id]
         line_total = product.price * item.quantity
         OrderItem.objects.create(
             order=order,
@@ -157,7 +164,6 @@ def create_order(*, user, cart, checkout_data):
 def cancel_order(order):
     locked_order = (
         Order.objects.select_for_update()
-        .prefetch_related("items__product")
         .get(pk=order.pk)
     )
     if (
@@ -167,9 +173,17 @@ def cancel_order(order):
         raise ValueError("This order can no longer be cancelled.")
     if locked_order.payment_status == Order.PaymentStatus.PAID:
         raise ValueError("Paid orders require a refund workflow before cancellation.")
-    for item in locked_order.items.all():
-        if item.product_id:
-            product = Product.objects.select_for_update().get(pk=item.product_id)
+    items = list(locked_order.items.all())
+    product_ids = sorted({item.product_id for item in items if item.product_id})
+    locked_products = {
+        product.pk: product
+        for product in Product.objects.select_for_update()
+        .filter(pk__in=product_ids)
+        .order_by("pk")
+    }
+    for item in items:
+        product = locked_products.get(item.product_id)
+        if product is not None:
             product.stock_quantity += item.quantity
             product.save(update_fields=("stock_quantity", "updated_at"))
     _transition_locked_order_state(locked_order, status=Order.Status.CANCELLED)
