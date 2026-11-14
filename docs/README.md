@@ -44,6 +44,20 @@ Invalid PostgreSQL configuration fails during startup and never falls back to
 SQLite. To initialize a newly created PostgreSQL database, configure the
 variables and run `python manage.py migrate`.
 
+## Email configuration
+
+Development uses Django's console email backend by default. Password-reset
+messages are printed to the development console and are not sent externally.
+Production uses SMTP and fails closed unless an SMTP host and valid default
+sender address are configured.
+
+Configure `DJANGO_EMAIL_BACKEND`, `DJANGO_EMAIL_HOST`,
+`DJANGO_EMAIL_PORT`, `DJANGO_EMAIL_USE_TLS`, `DJANGO_EMAIL_USE_SSL`,
+`DJANGO_EMAIL_HOST_USER`, `DJANGO_EMAIL_HOST_PASSWORD`,
+`DJANGO_EMAIL_TIMEOUT`, and `DJANGO_DEFAULT_FROM_EMAIL` as needed.
+TLS and SSL cannot both be enabled. Username and password must be supplied
+together. Never commit real SMTP credentials.
+
 ## Production configuration
 
 Set `DJANGO_ENV=production`, a real `DJANGO_SECRET_KEY`,

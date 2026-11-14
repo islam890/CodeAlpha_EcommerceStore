@@ -1,7 +1,8 @@
 from decimal import Decimal
 
+from django.core import mail
 from django.contrib.auth.models import User
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from apps.catalog.models import Category, Product
@@ -72,6 +73,51 @@ class StorefrontIntegrationTests(TestCase):
         self.assertRedirects(response, reverse("accounts:profile"))
         response = self.client.get(reverse("accounts:profile"))
         self.assertContains(response, "new@example.com")
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="no-reply@example.com",
+    )
+    def test_password_reset_sends_one_email_with_valid_reset_link(self):
+        response = self.client.post(
+            reverse("accounts:password_reset"),
+            {"email": self.user.email},
+        )
+        self.assertRedirects(response, reverse("password_reset_done"))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.user.email])
+        reset_url = next(
+            line
+            for line in mail.outbox[0].body.splitlines()
+            if line.startswith("http://testserver/")
+        )
+        self.assertIn("/accounts/reset/", reset_url)
+
+        response = self.client.get(reset_url)
+        self.assertEqual(response.status_code, 302)
+        response = self.client.post(
+            response.url,
+            {"new_password1": "New-strong-password-123", "new_password2": "New-strong-password-123"},
+        )
+        self.assertRedirects(response, reverse("password_reset_complete"))
+        self.assertTrue(
+            self.client.login(
+                username="customer",
+                password="New-strong-password-123",
+            )
+        )
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="no-reply@example.com",
+    )
+    def test_password_reset_unknown_email_does_not_disclose_account(self):
+        response = self.client.post(
+            reverse("accounts:password_reset"),
+            {"email": "unknown@example.com"},
+        )
+        self.assertRedirects(response, reverse("password_reset_done"))
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_cart_wishlist_checkout_and_order_history_flow(self):
         self.client.force_login(self.user)

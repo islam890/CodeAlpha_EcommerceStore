@@ -3,7 +3,8 @@
 import os
 from pathlib import Path
 
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.core.validators import validate_email
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -65,6 +66,100 @@ SECRET_KEY = validate_production_configuration(
 
 def env_bool(name, default=False):
     return os.environ.get(name, str(default)).lower() in {"1", "true", "yes"}
+
+
+def parse_email_bool(environment, setting_name, default=False):
+    raw_value = environment.get(setting_name)
+    if raw_value is None:
+        return default
+    value = str(raw_value).strip().lower()
+    if value in {"1", "true", "yes"}:
+        return True
+    if value in {"0", "false", "no"}:
+        return False
+    raise ImproperlyConfigured(
+        f"{setting_name} must be true or false."
+    )
+
+
+def get_email_config(environ=None):
+    environment = os.environ if environ is None else environ
+    configured_environment = str(
+        environment.get("DJANGO_ENV", ENVIRONMENT)
+    ).strip().lower()
+    requested_backend = environment.get("DJANGO_EMAIL_BACKEND")
+    if requested_backend is None or not str(requested_backend).strip():
+        requested_backend = "smtp" if configured_environment == "production" else "console"
+    backend = str(requested_backend).strip().lower()
+    backend_aliases = {
+        "console": "django.core.mail.backends.console.EmailBackend",
+        "django.core.mail.backends.console.emailbackend": "django.core.mail.backends.console.EmailBackend",
+        "smtp": "django.core.mail.backends.smtp.EmailBackend",
+        "django.core.mail.backends.smtp.emailbackend": "django.core.mail.backends.smtp.EmailBackend",
+    }
+    if backend not in backend_aliases:
+        raise ImproperlyConfigured(
+            "DJANGO_EMAIL_BACKEND must be console or smtp."
+        )
+    email_backend = backend_aliases[backend]
+    if configured_environment == "production" and email_backend != backend_aliases["smtp"]:
+        raise ImproperlyConfigured(
+            "Production email must use the SMTP backend."
+        )
+
+    host = str(environment.get("DJANGO_EMAIL_HOST", "")).strip()
+    from_email = str(environment.get("DJANGO_DEFAULT_FROM_EMAIL", "")).strip()
+    if email_backend == backend_aliases["smtp"] and not host:
+        raise ImproperlyConfigured(
+            "DJANGO_EMAIL_HOST is required for the SMTP email backend."
+        )
+    if configured_environment == "production" and not from_email:
+        raise ImproperlyConfigured(
+            "DJANGO_DEFAULT_FROM_EMAIL is required in production."
+        )
+    if from_email:
+        try:
+            validate_email(from_email)
+        except ValidationError as exc:
+            raise ImproperlyConfigured(
+                "DJANGO_DEFAULT_FROM_EMAIL must be a valid email address."
+            ) from exc
+
+    use_tls = parse_email_bool(environment, "DJANGO_EMAIL_USE_TLS")
+    use_ssl = parse_email_bool(environment, "DJANGO_EMAIL_USE_SSL")
+    if use_tls and use_ssl:
+        raise ImproperlyConfigured(
+            "DJANGO_EMAIL_USE_TLS and DJANGO_EMAIL_USE_SSL cannot both be enabled."
+        )
+    username = str(environment.get("DJANGO_EMAIL_HOST_USER", "")).strip()
+    password = environment.get("DJANGO_EMAIL_HOST_PASSWORD", "")
+    if bool(username) != bool(password):
+        raise ImproperlyConfigured(
+            "DJANGO_EMAIL_HOST_USER and DJANGO_EMAIL_HOST_PASSWORD must be provided together."
+        )
+
+    return {
+        "EMAIL_BACKEND": email_backend,
+        "EMAIL_HOST": host,
+        "EMAIL_PORT": parse_database_int(
+            environment.get("DJANGO_EMAIL_PORT"),
+            setting_name="DJANGO_EMAIL_PORT",
+            default=25,
+            minimum=1,
+        ),
+        "EMAIL_USE_TLS": use_tls,
+        "EMAIL_USE_SSL": use_ssl,
+        "EMAIL_HOST_USER": username,
+        "EMAIL_HOST_PASSWORD": password,
+        "EMAIL_TIMEOUT": parse_database_int(
+            environment.get("DJANGO_EMAIL_TIMEOUT"),
+            setting_name="DJANGO_EMAIL_TIMEOUT",
+            default=10,
+            minimum=1,
+        ),
+        "DEFAULT_FROM_EMAIL": from_email or "webmaster@localhost",
+        "SERVER_EMAIL": from_email or "webmaster@localhost",
+    }
 
 
 def validate_production_security(
@@ -220,6 +315,17 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 DATABASES = {"default": get_database_config()}
+EMAIL_CONFIG = get_email_config()
+EMAIL_BACKEND = EMAIL_CONFIG["EMAIL_BACKEND"]
+EMAIL_HOST = EMAIL_CONFIG["EMAIL_HOST"]
+EMAIL_PORT = EMAIL_CONFIG["EMAIL_PORT"]
+EMAIL_USE_TLS = EMAIL_CONFIG["EMAIL_USE_TLS"]
+EMAIL_USE_SSL = EMAIL_CONFIG["EMAIL_USE_SSL"]
+EMAIL_HOST_USER = EMAIL_CONFIG["EMAIL_HOST_USER"]
+EMAIL_HOST_PASSWORD = EMAIL_CONFIG["EMAIL_HOST_PASSWORD"]
+EMAIL_TIMEOUT = EMAIL_CONFIG["EMAIL_TIMEOUT"]
+DEFAULT_FROM_EMAIL = EMAIL_CONFIG["DEFAULT_FROM_EMAIL"]
+SERVER_EMAIL = EMAIL_CONFIG["SERVER_EMAIL"]
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

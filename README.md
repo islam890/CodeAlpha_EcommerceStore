@@ -68,6 +68,31 @@ remain configurable for the selected authentication and deployment setup.
 Invalid PostgreSQL configuration fails at startup instead of falling back to
 SQLite.
 
+## Email configuration
+
+Development uses Django's console email backend by default, so password-reset
+messages are printed locally instead of sent externally. Production defaults
+to SMTP and fails at startup unless `DJANGO_EMAIL_HOST` and
+`DJANGO_DEFAULT_FROM_EMAIL` are configured.
+
+Example production configuration:
+
+```text
+DJANGO_EMAIL_BACKEND=smtp
+DJANGO_EMAIL_HOST=smtp.example.com
+DJANGO_EMAIL_PORT=587
+DJANGO_EMAIL_USE_TLS=True
+DJANGO_EMAIL_USE_SSL=False
+DJANGO_EMAIL_HOST_USER=<smtp-user>
+DJANGO_EMAIL_HOST_PASSWORD=<smtp-password>
+DJANGO_EMAIL_TIMEOUT=10
+DJANGO_DEFAULT_FROM_EMAIL=no-reply@example.com
+```
+
+Use either TLS or SSL, not both. SMTP credentials are optional only for
+servers that do not require authentication. Never commit real SMTP credentials
+or secrets.
+
 ## Database
 
 For a fresh development database:

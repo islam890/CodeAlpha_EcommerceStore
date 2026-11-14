@@ -27,6 +27,7 @@ from apps.reviews.models import Review
 from apps.wishlist.models import Wishlist, WishlistItem
 from config.settings import (
     DEVELOPMENT_SECRET_KEY,
+    get_email_config,
     get_database_config,
     parse_allowed_hosts,
     validate_production_security,
@@ -228,6 +229,49 @@ class BackendWorkflowTests(TestCase):
             "DJANGO_DB_CONN_MAX_AGE must be an integer",
         ):
             get_database_config({**base, "DJANGO_DB_CONN_MAX_AGE": "persistent"})
+
+    def test_email_configuration_defaults_to_console_in_development(self):
+        config = get_email_config({"DJANGO_ENV": "development"})
+        self.assertEqual(
+            config["EMAIL_BACKEND"],
+            "django.core.mail.backends.console.EmailBackend",
+        )
+        self.assertEqual(config["DEFAULT_FROM_EMAIL"], "webmaster@localhost")
+
+    def test_email_configuration_rejects_incomplete_production_smtp(self):
+        base = {
+            "DJANGO_ENV": "production",
+            "DJANGO_DEFAULT_FROM_EMAIL": "no-reply@example.com",
+        }
+        with self.assertRaisesRegex(ImproperlyConfigured, "DJANGO_EMAIL_HOST"):
+            get_email_config(base)
+        with self.assertRaisesRegex(
+            ImproperlyConfigured,
+            "DJANGO_DEFAULT_FROM_EMAIL",
+        ):
+            get_email_config(
+                {
+                    "DJANGO_ENV": "production",
+                    "DJANGO_EMAIL_HOST": "smtp.example.com",
+                }
+            )
+
+    def test_email_configuration_rejects_invalid_transport_settings(self):
+        base = {
+            "DJANGO_ENV": "production",
+            "DJANGO_EMAIL_HOST": "smtp.example.com",
+            "DJANGO_DEFAULT_FROM_EMAIL": "no-reply@example.com",
+        }
+        with self.assertRaises(ImproperlyConfigured):
+            get_email_config({**base, "DJANGO_EMAIL_PORT": "smtp"})
+        with self.assertRaises(ImproperlyConfigured):
+            get_email_config(
+                {**base, "DJANGO_EMAIL_USE_TLS": "true", "DJANGO_EMAIL_USE_SSL": "true"}
+            )
+        with self.assertRaises(ImproperlyConfigured):
+            get_email_config(
+                {**base, "DJANGO_EMAIL_HOST_USER": "smtp-user"}
+            )
 
     def test_registration_and_login(self):
         response = self.client.post(
