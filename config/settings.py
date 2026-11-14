@@ -106,6 +106,72 @@ validate_production_security(
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
+
+def parse_database_int(raw_value, *, setting_name, default, minimum=0):
+    value = str(default) if raw_value is None else str(raw_value).strip()
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ImproperlyConfigured(f"{setting_name} must be an integer.") from exc
+    if parsed < minimum:
+        raise ImproperlyConfigured(
+            f"{setting_name} must be greater than or equal to {minimum}."
+        )
+    return parsed
+
+
+def get_database_config(environ=None):
+    environment = os.environ if environ is None else environ
+    raw_engine = environment.get("DJANGO_DB_ENGINE", "sqlite").strip().lower()
+    if raw_engine in {"sqlite", "sqlite3", "django.db.backends.sqlite3"}:
+        return {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": environment.get("DJANGO_DB_NAME") or BASE_DIR / "db.sqlite3",
+        }
+    if raw_engine not in {"postgres", "postgresql", "django.db.backends.postgresql"}:
+        raise ImproperlyConfigured(
+            "DJANGO_DB_ENGINE must be sqlite or postgresql."
+        )
+
+    required = {
+        "DJANGO_DB_NAME": environment.get("DJANGO_DB_NAME", "").strip(),
+        "DJANGO_DB_USER": environment.get("DJANGO_DB_USER", "").strip(),
+        "DJANGO_DB_HOST": environment.get("DJANGO_DB_HOST", "").strip(),
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing:
+        raise ImproperlyConfigured(
+            "PostgreSQL configuration is missing: " + ", ".join(missing)
+        )
+
+    options = {}
+    sslmode = environment.get("DJANGO_DB_SSLMODE", "").strip()
+    if sslmode:
+        options["sslmode"] = sslmode
+
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": required["DJANGO_DB_NAME"],
+        "USER": required["DJANGO_DB_USER"],
+        "PASSWORD": environment.get("DJANGO_DB_PASSWORD", ""),
+        "HOST": required["DJANGO_DB_HOST"],
+        "PORT": str(
+            parse_database_int(
+                environment.get("DJANGO_DB_PORT"),
+                setting_name="DJANGO_DB_PORT",
+                default=5432,
+                minimum=1,
+            )
+        ),
+        "CONN_MAX_AGE": parse_database_int(
+            environment.get("DJANGO_DB_CONN_MAX_AGE"),
+            setting_name="DJANGO_DB_CONN_MAX_AGE",
+            default=0,
+            minimum=0,
+        ),
+        "OPTIONS": options,
+    }
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -153,12 +219,7 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
-}
+DATABASES = {"default": get_database_config()}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

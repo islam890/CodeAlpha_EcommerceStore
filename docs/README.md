@@ -4,7 +4,8 @@
 
 This project is a server-rendered Django 5.2.19 e-commerce store using the
 built-in Django `User` model, a separate `Profile`, Django templates, Bootstrap
-5, and SQLite for local development.
+5, and SQLite for local development. PostgreSQL is supported through the
+environment-driven Django database configuration.
 
 The applications are intentionally separated by responsibility:
 
@@ -28,6 +29,20 @@ SQLite is suitable for development but does not provide production-grade
 row-level locking for concurrent checkout or cancellation. Use PostgreSQL or
 another transactional production database before accepting concurrent
 traffic.
+
+## Database configuration
+
+SQLite remains the default when `DJANGO_DB_ENGINE` is unset or set to
+`sqlite`. PostgreSQL can be selected with `DJANGO_DB_ENGINE=postgresql`.
+PostgreSQL requires `DJANGO_DB_NAME`, `DJANGO_DB_USER`, and
+`DJANGO_DB_HOST`; `DJANGO_DB_PASSWORD` may be empty when the server
+authentication configuration does not require one. `DJANGO_DB_PORT` defaults
+to `5432`, `DJANGO_DB_CONN_MAX_AGE` defaults to `0`, and `DJANGO_DB_SSLMODE`
+is optional.
+
+Invalid PostgreSQL configuration fails during startup and never falls back to
+SQLite. To initialize a newly created PostgreSQL database, configure the
+variables and run `python manage.py migrate`.
 
 ## Production configuration
 

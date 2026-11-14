@@ -27,6 +27,7 @@ from apps.reviews.models import Review
 from apps.wishlist.models import Wishlist, WishlistItem
 from config.settings import (
     DEVELOPMENT_SECRET_KEY,
+    get_database_config,
     parse_allowed_hosts,
     validate_production_security,
     validate_production_configuration,
@@ -124,6 +125,109 @@ class BackendWorkflowTests(TestCase):
                 validate_production_security(**{**secure_values, setting: False})
         with self.assertRaises(ImproperlyConfigured):
             validate_production_security(**{**secure_values, "hsts_seconds": 0})
+
+    def test_database_configuration_defaults_to_sqlite(self):
+        config = get_database_config({})
+        self.assertEqual(config["ENGINE"], "django.db.backends.sqlite3")
+        self.assertTrue(str(config["NAME"]).endswith("db.sqlite3"))
+
+    def test_database_configuration_rejects_unknown_engine(self):
+        with self.assertRaisesRegex(
+            ImproperlyConfigured,
+            "DJANGO_DB_ENGINE must be sqlite or postgresql",
+        ):
+            get_database_config({"DJANGO_DB_ENGINE": "mysql"})
+
+    def test_database_configuration_supports_postgresql(self):
+        config = get_database_config(
+            {
+                "DJANGO_DB_ENGINE": "postgresql",
+                "DJANGO_DB_NAME": "codealpha_store",
+                "DJANGO_DB_USER": "codealpha",
+                "DJANGO_DB_PASSWORD": "not-a-real-password",
+                "DJANGO_DB_HOST": "127.0.0.1",
+                "DJANGO_DB_PORT": "5433",
+                "DJANGO_DB_CONN_MAX_AGE": "60",
+                "DJANGO_DB_SSLMODE": "require",
+            }
+        )
+        self.assertEqual(config["ENGINE"], "django.db.backends.postgresql")
+        self.assertEqual(config["NAME"], "codealpha_store")
+        self.assertEqual(config["USER"], "codealpha")
+        self.assertEqual(config["PORT"], "5433")
+        self.assertEqual(config["CONN_MAX_AGE"], 60)
+        self.assertEqual(config["OPTIONS"], {"sslmode": "require"})
+        self.assertEqual(
+            get_database_config(
+                {
+                    "DJANGO_DB_ENGINE": "postgresql",
+                    "DJANGO_DB_NAME": "codealpha_store",
+                    "DJANGO_DB_USER": "codealpha",
+                    "DJANGO_DB_HOST": "127.0.0.1",
+                }
+            )["OPTIONS"],
+            {},
+        )
+
+    def test_database_configuration_uses_postgresql_defaults(self):
+        config = get_database_config(
+            {
+                "DJANGO_DB_ENGINE": "postgresql",
+                "DJANGO_DB_NAME": "codealpha_store",
+                "DJANGO_DB_USER": "codealpha",
+                "DJANGO_DB_HOST": "127.0.0.1",
+            }
+        )
+        self.assertEqual(config["PORT"], "5432")
+        self.assertEqual(config["CONN_MAX_AGE"], 0)
+
+    def test_database_configuration_rejects_incomplete_postgresql(self):
+        base = {
+            "DJANGO_DB_ENGINE": "postgresql",
+            "DJANGO_DB_NAME": "codealpha_store",
+            "DJANGO_DB_USER": "codealpha",
+            "DJANGO_DB_HOST": "127.0.0.1",
+        }
+        for missing in ("DJANGO_DB_NAME", "DJANGO_DB_USER", "DJANGO_DB_HOST"):
+            invalid = {**base, missing: ""}
+            with self.assertRaises(ImproperlyConfigured):
+                get_database_config(invalid)
+
+    def test_database_configuration_rejects_whitespace_required_values(self):
+        base = {
+            "DJANGO_DB_ENGINE": "postgresql",
+            "DJANGO_DB_NAME": "codealpha_store",
+            "DJANGO_DB_USER": "codealpha",
+            "DJANGO_DB_HOST": "127.0.0.1",
+        }
+        for required in ("DJANGO_DB_NAME", "DJANGO_DB_USER", "DJANGO_DB_HOST"):
+            with self.assertRaises(ImproperlyConfigured):
+                get_database_config({**base, required: "   "})
+
+    def test_database_configuration_rejects_invalid_numeric_values(self):
+        base = {
+            "DJANGO_DB_ENGINE": "postgresql",
+            "DJANGO_DB_NAME": "codealpha_store",
+            "DJANGO_DB_USER": "codealpha",
+            "DJANGO_DB_HOST": "127.0.0.1",
+        }
+        with self.assertRaises(ImproperlyConfigured):
+            get_database_config({**base, "DJANGO_DB_CONN_MAX_AGE": "-1"})
+        with self.assertRaises(ImproperlyConfigured):
+            get_database_config({**base, "DJANGO_DB_PORT": "not-a-port"})
+
+    def test_database_configuration_rejects_non_numeric_connection_age(self):
+        base = {
+            "DJANGO_DB_ENGINE": "postgresql",
+            "DJANGO_DB_NAME": "codealpha_store",
+            "DJANGO_DB_USER": "codealpha",
+            "DJANGO_DB_HOST": "127.0.0.1",
+        }
+        with self.assertRaisesRegex(
+            ImproperlyConfigured,
+            "DJANGO_DB_CONN_MAX_AGE must be an integer",
+        ):
+            get_database_config({**base, "DJANGO_DB_CONN_MAX_AGE": "persistent"})
 
     def test_registration_and_login(self):
         response = self.client.post(

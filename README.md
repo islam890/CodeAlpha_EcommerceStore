@@ -22,7 +22,8 @@ Django 5.2.19, Django Templates, Bootstrap 5, CSS, and JavaScript.
 
 - Python 3.13
 - Django 5.2.19
-- SQLite for development; PostgreSQL-compatible ORM design
+- SQLite for development by default; optional PostgreSQL backend
+- Psycopg 3 for PostgreSQL connectivity
 - Django ORM, Forms, Authentication, and CSRF middleware
 - Django Templates, Bootstrap 5, CSS3, and JavaScript
 
@@ -44,6 +45,29 @@ start if those production requirements are missing or invalid. Production
 also requires HTTPS redirect, secure session and CSRF cookies, and positive
 HSTS seconds.
 
+## Database configuration
+
+SQLite is used by default when `DJANGO_DB_ENGINE` is unset or set to
+`sqlite`. The existing development database remains `db.sqlite3`.
+
+To use PostgreSQL, install the requirements and configure:
+
+```text
+DJANGO_DB_ENGINE=postgresql
+DJANGO_DB_NAME=codealpha_store
+DJANGO_DB_USER=codealpha
+DJANGO_DB_PASSWORD=<your-password>
+DJANGO_DB_HOST=127.0.0.1
+DJANGO_DB_PORT=5432
+DJANGO_DB_CONN_MAX_AGE=60
+DJANGO_DB_SSLMODE=prefer
+```
+
+PostgreSQL requires a database name, user, and host. Password and SSL mode
+remain configurable for the selected authentication and deployment setup.
+Invalid PostgreSQL configuration fails at startup instead of falling back to
+SQLite.
+
 ## Database
 
 For a fresh development database:
@@ -55,6 +79,14 @@ python manage.py createsuperuser
 
 Existing development data must not be reset or recreated. Migrations are
 preserved in each application.
+
+For a newly created PostgreSQL database, set the PostgreSQL variables above
+and run:
+
+```powershell
+python manage.py migrate
+python manage.py createsuperuser
+```
 
 ## Run the application
 
