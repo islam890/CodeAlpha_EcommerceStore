@@ -1,5 +1,7 @@
 from django.db import transaction
 
+from apps.catalog.models import Product
+
 from .models import Cart, CartItem
 
 
@@ -18,21 +20,39 @@ def get_cart(*, user=None, session_key=None):
 
 @transaction.atomic
 def merge_carts(target, source):
-    for item in source.items.select_related("product"):
-        available_stock = item.product.stock_quantity
-        if available_stock < 1 or not item.product.is_active:
+    """Merge a guest cart into an owned cart.
+
+    The cart and item locks protect merges on databases that support row-level
+    locking. SQLite remains subject to its database-wide write-lock behavior.
+    """
+    if target.pk == source.pk:
+        return
+    try:
+        locked_target = Cart.objects.select_for_update().get(pk=target.pk)
+        locked_source = Cart.objects.select_for_update().get(pk=source.pk)
+    except Cart.DoesNotExist:
+        return
+
+    for item in locked_source.items.select_for_update():
+        product = Product.objects.select_for_update().get(pk=item.product_id)
+        available_stock = product.stock_quantity
+        if available_stock < 1 or not product.is_active:
             item.delete()
             continue
-        existing = target.items.filter(product=item.product).first()
+        existing = (
+            locked_target.items.select_for_update()
+            .filter(product_id=product.pk)
+            .first()
+        )
         if existing:
             existing.quantity = min(existing.quantity + item.quantity, available_stock)
             existing.save(update_fields=("quantity", "updated_at"))
         else:
             item.quantity = min(item.quantity, available_stock)
             item.pk = None
-            item.cart = target
+            item.cart = locked_target
             item.save()
-    source.delete()
+    locked_source.delete()
 
 
 @transaction.atomic

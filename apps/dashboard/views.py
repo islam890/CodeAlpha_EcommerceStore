@@ -1,5 +1,5 @@
 from django.contrib.auth.mixins import UserPassesTestMixin
-from django.views.generic import TemplateView
+from django.views.generic import ListView, TemplateView
 
 from apps.catalog.models import Product
 from apps.orders.models import Order
@@ -19,22 +19,26 @@ class DashboardPageView(StaffRequiredMixin, TemplateView):
         return {**super().get_context_data(**kwargs), **dashboard_stats()}
 
 
-class ProductManagementPageView(StaffRequiredMixin, TemplateView):
+class ProductManagementPageView(StaffRequiredMixin, ListView):
     template_name = "dashboard/product_management.html"
+    context_object_name = "products"
+    paginate_by = 25
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["products"] = Product.objects.select_related("category").order_by("name")
-        return context
+    def get_queryset(self):
+        return Product.objects.select_related("category").order_by("name", "pk")
 
 
-class OrderManagementPageView(StaffRequiredMixin, TemplateView):
+class OrderManagementPageView(StaffRequiredMixin, ListView):
     template_name = "dashboard/order_management.html"
+    context_object_name = "orders"
+    paginate_by = 25
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["orders"] = Order.objects.select_related("user").prefetch_related("items")
-        return context
+    def get_queryset(self):
+        return (
+            Order.objects.select_related("user")
+            .prefetch_related("items")
+            .order_by("-created_at", "-pk")
+        )
 
 
 class SalesStatisticsPageView(StaffRequiredMixin, TemplateView):

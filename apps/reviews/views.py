@@ -1,5 +1,6 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.decorators import login_required
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -22,7 +23,15 @@ class ReviewPageView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         form.instance.product = self.product
         form.instance.user = self.request.user
-        return super().form_valid(form)
+        if Review.objects.filter(product=self.product, user=self.request.user).exists():
+            form.add_error(None, "You have already reviewed this product.")
+            return self.form_invalid(form)
+        try:
+            with transaction.atomic():
+                return super().form_valid(form)
+        except IntegrityError:
+            form.add_error(None, "You have already reviewed this product.")
+            return self.form_invalid(form)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

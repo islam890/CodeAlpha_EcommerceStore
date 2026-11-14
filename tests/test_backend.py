@@ -2,7 +2,8 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.core.exceptions import ValidationError
+from django.contrib import admin as django_admin
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from django.test import Client
@@ -14,10 +15,22 @@ from apps.catalog.models import Category, Product
 from apps.cart.models import Cart, CartItem
 from apps.cart.services import add_item, merge_carts
 from apps.dashboard.selectors import dashboard_stats, sales_summary
-from apps.orders.models import Order
-from apps.orders.services import cancel_order, create_order
+from apps.orders.admin import OrderAdmin, OrderAdminForm
+from apps.orders.models import Order, OrderItem
+from apps.orders.services import (
+    cancel_order,
+    create_order,
+    transition_order_status,
+    transition_payment_status,
+)
 from apps.reviews.models import Review
 from apps.wishlist.models import Wishlist, WishlistItem
+from config.settings import (
+    DEVELOPMENT_SECRET_KEY,
+    parse_allowed_hosts,
+    validate_production_security,
+    validate_production_configuration,
+)
 
 
 class BackendWorkflowTests(TestCase):
@@ -41,6 +54,76 @@ class BackendWorkflowTests(TestCase):
 
     def test_profile_created_for_new_user(self):
         self.assertTrue(Profile.objects.filter(user=self.user).exists())
+
+    def test_production_configuration_rejects_unsafe_values(self):
+        with self.assertRaises(ImproperlyConfigured):
+            validate_production_configuration(
+                environment="production",
+                debug=True,
+                secret_key="real-secret",
+                allowed_hosts=["shop.example"],
+            )
+        with self.assertRaises(ImproperlyConfigured):
+            validate_production_configuration(
+                environment="production",
+                debug=False,
+                secret_key=None,
+                allowed_hosts=["shop.example"],
+            )
+        with self.assertRaises(ImproperlyConfigured):
+            validate_production_configuration(
+                environment="production",
+                debug=False,
+                secret_key=DEVELOPMENT_SECRET_KEY,
+                allowed_hosts=["shop.example"],
+            )
+        with self.assertRaises(ImproperlyConfigured):
+            validate_production_configuration(
+                environment="production",
+                debug=False,
+                secret_key="replace-this-development-secret",
+                allowed_hosts=["shop.example"],
+            )
+        with self.assertRaises(ImproperlyConfigured):
+            validate_production_configuration(
+                environment="production",
+                debug=False,
+                secret_key="a" * 60,
+                allowed_hosts=["127.0.0.1", "localhost"],
+                allowed_hosts_configured=False,
+            )
+        for raw_hosts in ("   ", ",,,"):
+            self.assertEqual(parse_allowed_hosts(raw_hosts), [])
+            with self.assertRaises(ImproperlyConfigured):
+                validate_production_configuration(
+                    environment="production",
+                    debug=False,
+                    secret_key="a" * 60,
+                    allowed_hosts=parse_allowed_hosts(raw_hosts),
+                )
+        self.assertEqual(
+            parse_allowed_hosts(" shop.example , api.shop.example "),
+            ["shop.example", "api.shop.example"],
+        )
+
+    def test_production_configuration_requires_https_security(self):
+        secure_values = {
+            "environment": "production",
+            "secure_ssl_redirect": True,
+            "session_cookie_secure": True,
+            "csrf_cookie_secure": True,
+            "hsts_seconds": 31536000,
+        }
+        validate_production_security(**secure_values)
+        for setting in (
+            "secure_ssl_redirect",
+            "session_cookie_secure",
+            "csrf_cookie_secure",
+        ):
+            with self.assertRaises(ImproperlyConfigured):
+                validate_production_security(**{**secure_values, setting: False})
+        with self.assertRaises(ImproperlyConfigured):
+            validate_production_security(**{**secure_values, "hsts_seconds": 0})
 
     def test_registration_and_login(self):
         response = self.client.post(
@@ -119,6 +202,154 @@ class BackendWorkflowTests(TestCase):
         self.product.price = Decimal("40.00")
         self.product.save()
         self.assertEqual(order.items.get().unit_price, Decimal("32.00"))
+
+    def test_checkout_preserves_two_decimal_money_totals(self):
+        self.product.price = Decimal("12.34")
+        self.product.save(update_fields=("price",))
+        cart = Cart.objects.create(user=self.user)
+        add_item(cart, self.product, 3)
+        order = create_order(
+            user=self.user,
+            cart=cart,
+            checkout_data={
+                "shipping_name": "Alex Customer",
+                "shipping_email": "alex@example.com",
+                "shipping_phone": "",
+                "shipping_address": "123 Main Street",
+                "payment_method": Order.PaymentMethod.COD,
+            },
+        )
+        self.assertEqual(order.subtotal, Decimal("37.02"))
+        self.assertEqual(order.total, Decimal("45.02"))
+        self.assertEqual(order.items.get().line_total, Decimal("37.02"))
+
+    def test_order_totals_and_status_transitions_are_validated(self):
+        order = Order(
+            order_number="LM-INVALID-TOTAL",
+            user=self.user,
+            subtotal=Decimal("10.00"),
+            shipping_fee=Decimal("8.00"),
+            total=Decimal("10.00"),
+            shipping_name="Alex",
+            shipping_email="alex@example.com",
+            shipping_address="123 Main Street",
+        )
+        with self.assertRaises(ValidationError):
+            order.full_clean()
+
+        self.assertTrue(Order.is_valid_status_transition(Order.Status.PENDING, Order.Status.PROCESSING))
+        self.assertFalse(Order.is_valid_status_transition(Order.Status.DELIVERED, Order.Status.PROCESSING))
+        self.assertTrue(Order.is_valid_payment_transition(Order.PaymentStatus.PAID, Order.PaymentStatus.REFUNDED))
+        self.assertFalse(Order.is_valid_payment_transition(Order.PaymentStatus.REFUNDED, Order.PaymentStatus.PAID))
+
+        existing = Order.objects.create(
+            order_number="LM-ADMIN-TRANSITION",
+            user=self.user,
+            status=Order.Status.PROCESSING,
+            subtotal=Decimal("10.00"),
+            shipping_fee=Decimal("0.00"),
+            total=Decimal("10.00"),
+            shipping_name="Alex",
+            shipping_email="alex@example.com",
+            shipping_address="123 Main Street",
+        )
+        form = OrderAdminForm(
+            instance=existing,
+            data={
+                "user": self.user.pk,
+                "status": Order.Status.PENDING,
+                "payment_method": Order.PaymentMethod.COD,
+                "payment_status": Order.PaymentStatus.PENDING,
+                "subtotal": "10.00",
+                "shipping_fee": "0.00",
+                "total": "10.00",
+                "shipping_name": "Alex",
+                "shipping_email": "alex@example.com",
+                "shipping_phone": "",
+                "shipping_address": "123 Main Street",
+            },
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("status", form.errors)
+
+    def test_database_constraints_reject_invalid_financial_records(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Order.objects.create(
+                    order_number="LM-CONSTRAINT-ORDER",
+                    user=self.user,
+                    subtotal=Decimal("10.00"),
+                    shipping_fee=Decimal("8.00"),
+                    total=Decimal("1.00"),
+                    shipping_name="Alex",
+                    shipping_email="alex@example.com",
+                    shipping_address="123 Main Street",
+                )
+
+        order = Order.objects.create(
+            order_number="LM-CONSTRAINT-ITEM",
+            user=self.user,
+            subtotal=Decimal("20.00"),
+            shipping_fee=Decimal("0.00"),
+            total=Decimal("20.00"),
+            shipping_name="Alex",
+            shipping_email="alex@example.com",
+            shipping_address="123 Main Street",
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                OrderItem.objects.create(
+                    order=order,
+                    product=self.product,
+                    product_name=self.product.name,
+                    sku=self.product.sku,
+                    unit_price=Decimal("10.00"),
+                    quantity=2,
+                    line_total=Decimal("1.00"),
+                )
+
+        item = OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            product_name=self.product.name,
+            sku=self.product.sku,
+            unit_price=Decimal("10.00"),
+            quantity=2,
+            line_total=Decimal("20.00"),
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Order.objects.filter(pk=order.pk).update(total=Decimal("1.00"))
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                OrderItem.objects.filter(pk=item.pk).update(line_total=Decimal("1.00"))
+
+    def test_order_transitions_use_service_and_admin_paths(self):
+        order = Order.objects.create(
+            order_number="LM-SERVICE-TRANSITION",
+            user=self.user,
+            subtotal=Decimal("10.00"),
+            shipping_fee=Decimal("0.00"),
+            total=Decimal("10.00"),
+            shipping_name="Alex",
+            shipping_email="alex@example.com",
+            shipping_address="123 Main Street",
+        )
+        transition_order_status(order, Order.Status.PROCESSING)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.PROCESSING)
+        with self.assertRaises(ValueError):
+            transition_order_status(order, Order.Status.PENDING)
+        transition_payment_status(order, Order.PaymentStatus.PAID)
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, Order.PaymentStatus.PAID)
+        with self.assertRaises(ValueError):
+            transition_payment_status(order, Order.PaymentStatus.PENDING)
+
+        order.status = Order.Status.SHIPPED
+        OrderAdmin(Order, django_admin.site).save_model(None, order, None, True)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.SHIPPED)
 
     def test_order_rejects_insufficient_stock_and_cancellation_restores(self):
         cart = Cart.objects.create(user=self.user)
@@ -232,6 +463,24 @@ class BackendWorkflowTests(TestCase):
         self.assertEqual(self.product.stock_quantity, 5)
         self.assertTrue(CartItem.objects.filter(cart=cart, product=self.product).exists())
 
+    def test_checkout_service_rejects_invalid_internal_input(self):
+        cart = Cart.objects.create(user=self.user)
+        add_item(cart, self.product, 1)
+        checkout_data = {
+            "shipping_name": "Alex",
+            "shipping_email": "alex@example.com",
+            "shipping_address": "123 Main Street",
+            "payment_method": "card",
+        }
+        with self.assertRaisesMessage(ValueError, "payment method"):
+            create_order(user=self.user, cart=cart, checkout_data=checkout_data)
+        self.assertFalse(Order.objects.exists())
+        self.assertTrue(CartItem.objects.filter(cart=cart).exists())
+        checkout_data["payment_method"] = Order.PaymentMethod.COD
+        checkout_data.pop("shipping_address")
+        with self.assertRaisesMessage(ValueError, "Shipping address is required"):
+            create_order(user=self.user, cart=cart, checkout_data=checkout_data)
+
     def test_paid_order_cannot_be_cancelled(self):
         order = Order.objects.create(
             order_number="LM-PAID-001",
@@ -306,6 +555,29 @@ class BackendWorkflowTests(TestCase):
         self.client.post(reverse("reviews:delete", args=[review.pk]))
         self.assertFalse(Review.objects.filter(pk=review.pk).exists())
 
+    def test_duplicate_review_submission_returns_form_error(self):
+        Review.objects.create(product=self.product, user=self.user, rating=5, title="Great", content="Useful.")
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("reviews:create", args=[self.product.slug]),
+            {"rating": 4, "title": "Again", "content": "Duplicate."},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "already reviewed")
+        self.assertEqual(Review.objects.filter(product=self.product, user=self.user).count(), 1)
+
+    def test_duplicate_review_integrity_error_returns_form_error(self):
+        self.client.force_login(self.user)
+        with patch("apps.reviews.views.Review.objects.filter") as review_filter:
+            review_filter.return_value.exists.return_value = False
+            with patch.object(Review, "save", side_effect=IntegrityError):
+                response = self.client.post(
+                    reverse("reviews:create", args=[self.product.slug]),
+                    {"rating": 4, "title": "Race", "content": "Duplicate race."},
+                )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "already reviewed")
+
     def test_product_detail_only_prefetches_approved_reviews(self):
         approved = Review.objects.create(product=self.product, user=self.user, rating=5, title="Approved", content="Visible.", is_approved=True)
         Review.objects.create(product=self.product, user=self.other_user, rating=1, title="Pending", content="Hidden.", is_approved=False)
@@ -331,6 +603,35 @@ class BackendWorkflowTests(TestCase):
         self.assertFalse(CartItem.objects.filter(cart=target, product=zero_stock).exists())
         self.assertEqual(CartItem.objects.get(cart=target, product=self.product).quantity, 4)
 
+    def test_guest_cart_merge_caps_duplicates_and_skips_inactive_products(self):
+        source = Cart.objects.create(session_key="guest-duplicate")
+        target = Cart.objects.create(user=self.user)
+        CartItem.objects.create(cart=target, product=self.product, quantity=2)
+        CartItem.objects.create(cart=source, product=self.product, quantity=4)
+        inactive = Product.objects.create(
+            category=self.category,
+            name="Inactive",
+            slug="inactive",
+            sku="INACTIVE-001",
+            description="Inactive product.",
+            price=Decimal("10.00"),
+            stock_quantity=3,
+            is_active=False,
+        )
+        CartItem.objects.create(cart=source, product=inactive, quantity=1)
+        merge_carts(target, source)
+        self.assertEqual(CartItem.objects.get(cart=target, product=self.product).quantity, 5)
+        self.assertFalse(CartItem.objects.filter(cart=target, product=inactive).exists())
+
+    def test_guest_cart_merge_rolls_back_on_failure(self):
+        source = Cart.objects.create(session_key="guest-rollback")
+        target = Cart.objects.create(user=self.user)
+        CartItem.objects.create(cart=source, product=self.product, quantity=1)
+        with patch("apps.cart.services.CartItem.save", side_effect=RuntimeError):
+            with self.assertRaises(RuntimeError):
+                merge_carts(target, source)
+        self.assertTrue(CartItem.objects.filter(cart=source, product=self.product).exists())
+        self.assertFalse(CartItem.objects.filter(cart=target).exists())
     def test_cart_mutations_and_session_isolation(self):
         cart = Cart.objects.create(user=self.user)
         item = CartItem.objects.create(cart=cart, product=self.product, quantity=2)

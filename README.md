@@ -38,8 +38,11 @@ Copy-Item .env.example .env
 ```
 
 Configure `.env` before deployment. Never commit real secrets.
-When `DJANGO_DEBUG=False`, the application refuses to start without
-`DJANGO_SECRET_KEY`.
+For production, set `DJANGO_ENV=production`, `DJANGO_DEBUG=False`, a unique
+`DJANGO_SECRET_KEY`, and explicit allowed hosts. The application refuses to
+start if those production requirements are missing or invalid. Production
+also requires HTTPS redirect, secure session and CSRF cookies, and positive
+HSTS seconds.
 
 ## Database
 

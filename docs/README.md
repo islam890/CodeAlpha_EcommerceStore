@@ -31,11 +31,23 @@ traffic.
 
 ## Production configuration
 
-Set a real `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=False`, explicit
-`DJANGO_ALLOWED_HOSTS`, and the HTTPS-related variables documented in
-`.env.example`. Production should also use HTTPS, secure cookies, HSTS after
-careful rollout, a production database, managed static/media storage, and
-appropriate backups and monitoring.
+Set `DJANGO_ENV=production`, a real `DJANGO_SECRET_KEY`,
+`DJANGO_DEBUG=False`, explicit `DJANGO_ALLOWED_HOSTS`, and the HTTPS-related
+variables documented in `.env.example`. The application fails closed unless
+HTTPS redirect, secure session and CSRF cookies, and positive HSTS seconds are
+configured. Production should also use HTTPS, a production database, managed
+static/media storage, and appropriate backups and monitoring.
+
+Orders may transition from pending to processing, processing to shipped,
+shipped to delivered, or pending/processing to cancelled. Payment status
+transitions are pending to paid/failed, failed back to pending, and paid to
+refunded. SQLite remains suitable only for development because it does not
+provide production-grade row-level checkout locking.
+
+Order and payment transitions should use the order services. The database
+enforces order totals and order-item line totals with check constraints, while
+unrestricted internal ORM code can still bypass transition policy because
+database rows cannot express previous-value transition rules.
 
 ## Current limitations
 

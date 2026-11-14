@@ -159,6 +159,40 @@ class StorefrontIntegrationTests(TestCase):
         self.assertContains(self.client.get(reverse("dashboard:products")), self.product.name)
         self.assertContains(self.client.get(reverse("dashboard:orders")), "No orders yet")
 
+    def test_staff_dashboard_lists_are_paginated(self):
+        for index in range(25):
+            Product.objects.create(
+                category=self.category,
+                name=f"Extra Product {index:02d}",
+                slug=f"extra-product-{index:02d}",
+                sku=f"EXTRA-{index:03d}",
+                description="Additional product.",
+                price=Decimal("10.00"),
+                stock_quantity=2,
+            )
+        staff = User.objects.create_user(username="pagination-staff", is_staff=True)
+        self.client.force_login(staff)
+        response = self.client.get(reverse("dashboard:products"), {"page": 2})
+        self.assertTrue(response.context["is_paginated"])
+        self.assertEqual(len(response.context["products"]), 1)
+        self.assertContains(response, "Page 2 of 2")
+
+        for index in range(26):
+            Order.objects.create(
+                order_number=f"LM-PAGE-{index:04d}",
+                user=self.user,
+                subtotal=Decimal("10.00"),
+                shipping_fee=Decimal("0.00"),
+                total=Decimal("10.00"),
+                shipping_name="Casey",
+                shipping_email="customer@example.com",
+                shipping_address="123 Main Street",
+            )
+        response = self.client.get(reverse("dashboard:orders"), {"page": 2})
+        self.assertTrue(response.context["is_paginated"])
+        self.assertEqual(len(response.context["orders"]), 1)
+        self.assertContains(response, "Page 2 of 2")
+
     def test_state_changing_requests_require_csrf(self):
         csrf_client = Client(enforce_csrf_checks=True)
         csrf_client.force_login(self.user)

@@ -1,8 +1,10 @@
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.db.models.functions import Round
 
 from apps.catalog.models import Product
 
@@ -23,6 +25,20 @@ class Order(models.Model):
         PAID = "paid", "Paid"
         FAILED = "failed", "Failed"
         REFUNDED = "refunded", "Refunded"
+
+    STATUS_TRANSITIONS = {
+        Status.PENDING: frozenset({Status.PENDING, Status.PROCESSING, Status.CANCELLED}),
+        Status.PROCESSING: frozenset({Status.PROCESSING, Status.SHIPPED, Status.CANCELLED}),
+        Status.SHIPPED: frozenset({Status.SHIPPED, Status.DELIVERED}),
+        Status.DELIVERED: frozenset({Status.DELIVERED}),
+        Status.CANCELLED: frozenset({Status.CANCELLED}),
+    }
+    PAYMENT_STATUS_TRANSITIONS = {
+        PaymentStatus.PENDING: frozenset({PaymentStatus.PENDING, PaymentStatus.PAID, PaymentStatus.FAILED}),
+        PaymentStatus.FAILED: frozenset({PaymentStatus.FAILED, PaymentStatus.PENDING}),
+        PaymentStatus.PAID: frozenset({PaymentStatus.PAID, PaymentStatus.REFUNDED}),
+        PaymentStatus.REFUNDED: frozenset({PaymentStatus.REFUNDED}),
+    }
 
     order_number = models.CharField(max_length=24, unique=True, editable=False)
     user = models.ForeignKey(User, on_delete=models.PROTECT, related_name="orders")
@@ -46,7 +62,31 @@ class Order(models.Model):
             models.CheckConstraint(condition=models.Q(subtotal__gte=0), name="order_subtotal_nonnegative"),
             models.CheckConstraint(condition=models.Q(shipping_fee__gte=0), name="order_shipping_nonnegative"),
             models.CheckConstraint(condition=models.Q(total__gte=0), name="order_total_nonnegative"),
+            models.CheckConstraint(
+                condition=models.Q(total=models.F("subtotal") + models.F("shipping_fee")),
+                name="order_total_matches_components",
+            ),
         ]
+
+    @classmethod
+    def is_valid_status_transition(cls, current, new):
+        return new in cls.STATUS_TRANSITIONS.get(current, ())
+
+    @classmethod
+    def is_valid_payment_transition(cls, current, new):
+        return new in cls.PAYMENT_STATUS_TRANSITIONS.get(current, ())
+
+    def clean(self):
+        super().clean()
+        if (
+            self.total is not None
+            and self.subtotal is not None
+            and self.shipping_fee is not None
+            and self.total != self.subtotal + self.shipping_fee
+        ):
+            raise ValidationError({"total": "Total must equal subtotal plus shipping."})
+        if self.status == self.Status.CANCELLED and self.payment_status == self.PaymentStatus.PAID:
+            raise ValidationError({"payment_status": "Paid orders cannot be cancelled."})
 
     def __str__(self):
         return self.order_number
@@ -66,4 +106,17 @@ class OrderItem(models.Model):
             models.CheckConstraint(condition=models.Q(quantity__gte=1), name="order_item_quantity_positive"),
             models.CheckConstraint(condition=models.Q(unit_price__gte=0), name="order_item_price_nonnegative"),
             models.CheckConstraint(condition=models.Q(line_total__gte=0), name="order_item_total_nonnegative"),
+            models.CheckConstraint(
+                condition=models.Q(
+                    line_total=Round(models.F("unit_price") * models.F("quantity"), 2)
+                ),
+                name="order_item_line_total_matches",
+            ),
         ]
+
+    def clean(self):
+        super().clean()
+        if self.unit_price is not None and self.quantity and self.line_total is not None:
+            expected_total = (self.unit_price * self.quantity).quantize(Decimal("0.01"))
+            if self.line_total != expected_total:
+                raise ValidationError({"line_total": "Line total must equal unit price multiplied by quantity."})
